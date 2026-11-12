@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Cronômetro de Pallets</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0f1115">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Pallets">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<style>
+:root{--bg:#0f1115;--card:#181b22;--line:#2a2f3a;--fg:#eceff4;--mut:#8b93a3;--acc:#5eead4;--warn:#fbbf24}
+@media (prefers-color-scheme:light){:root{--bg:#f4f5f7;--card:#fff;--line:#dde0e6;--fg:#14171c;--mut:#667085;--acc:#0d9488;--warn:#b45309}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.4 system-ui,sans-serif;padding:16px;padding-top:max(16px,env(safe-area-inset-top));padding-bottom:max(16px,env(safe-area-inset-bottom));max-width:560px;margin-inline:auto}
+h1{font-size:20px;margin:4px 0 14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:14px}
+label{display:block;font-size:13px;color:var(--mut);margin-bottom:4px}
+input[type=number],input[type=text],input[type=time]{width:100%;padding:10px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--fg);font-size:16px}
+.row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:6px}
+.sh{padding-bottom:12px;margin-bottom:12px;border-bottom:1px solid var(--line)}
+.sh h3{margin:0 0 8px;font-size:14px}
+.calc{font-size:13px;color:var(--acc);margin-bottom:4px}
+.chk{display:flex;align-items:center;gap:8px;margin:8px 0;font-size:15px}
+button{padding:12px 16px;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--fg);font-size:16px;cursor:pointer}
+button.p{background:var(--acc);color:#04201c;border-color:var(--acc);font-weight:600}
+button:disabled{opacity:.5}
+.btns{display:flex;gap:8px;flex-wrap:wrap}.btns button{flex:1}
+#time{font-size:64px;font-weight:700;text-align:center;font-variant-numeric:tabular-nums;letter-spacing:-1px}
+#slot{text-align:center;color:var(--mut);margin-bottom:6px}
+.bar{height:8px;background:var(--line);border-radius:4px;overflow:hidden;margin:12px 0}
+.bar>div{height:100%;width:0;background:var(--acc)}
+#chips{display:flex;gap:6px;flex-wrap:wrap;justify-content:center}
+.chip{padding:3px 9px;border-radius:99px;border:1px solid var(--line);font-size:13px;color:var(--mut)}
+.chip.on{border-color:var(--acc);color:var(--acc);font-weight:600}
+.chip.done{opacity:.45;text-decoration:line-through}
+#msg{text-align:center;font-size:14px;color:var(--warn);min-height:20px;margin-top:10px}
+small{color:var(--mut);display:block;margin-top:8px;font-size:12px}
+</style>
+</head>
+<body>
+<h1>📦 Cronômetro de pallets</h1>
+
+<div class="card" id="cfg">
+  <div id="shifts"></div>
+  <label for="marks">Avisar quando faltar (segundos, separados por vírgula)</label>
+  <input id="marks" type="text" value="300,60,30,10">
+  <label for="per" style="margin-top:10px">Aviso periódico a cada (minutos; 0 = desligado)</label>
+  <input id="per" type="number" min="0" step="0.5" value="5">
+  <div class="chk"><input id="voice" type="checkbox" checked><label for="voice" style="margin:0;color:inherit;font-size:15px">Falar o tempo restante (voz)</label></div>
+  <div class="chk">Volume <input id="vol" type="range" min="0.1" max="1" step="0.1" value="1" style="flex:1"></div>
+</div>
+
+<div class="card">
+  <div id="slot">Pronto para iniciar</div>
+  <div id="time">--:--</div>
+  <div class="bar"><div id="bar"></div></div>
+  <div id="chips"></div>
+  <div id="msg"></div>
+</div>
+
+<div class="btns">
+  <button class="p" id="start">▶ Iniciar</button>
+  <button id="stop" disabled>■ Parar</button>
+  <button id="test">🔊 Testar som</button>
+</div>
+<small>Os pallets seguem o relógio: você pode iniciar a qualquer hora e ele acompanha o pallet certo do horário. Mantenha o app aberto e a tela ligada; navegadores e sistemas podem suspender apps em segundo plano.</small>
+
+<script>
+const $=id=>document.getElementById(id);
+const KEY='pallet-timer-cfg-v2';
+let SH=[{a:'03:00',b:'06:30',n:14},{a:'06:30',b:'08:30',n:8}];
+let st={marks:'300,60,30,10',per:'5',voice:true,vol:'1'};
+try{const s=JSON.parse(localStorage.getItem(KEY)||'null');if(s){if(s.SH)SH=s.SH;Object.assign(st,s.st||{})}}catch(e){}
+$('marks').value=st.marks;$('per').value=st.per;$('voice').checked=st.voice;$('vol').value=st.vol;
+
+const hm=s=>{const[h,m]=(s||'0:0').split(':').map(Number);return h*60+m};
+const pad=n=>String(n).padStart(2,'0');
+const plural=(v,s)=>v+' '+s+(v>1?'s':'');
+function fmtSpoken(sec){sec=Math.round(sec);const m=Math.floor(sec/60),r=sec%60,p=[];if(m)p.push(plural(m,'minuto'));if(r)p.push(plural(r,'segundo'));return p.join(' e ')||'zero segundos'}
+const fmtClock=ms=>{const s=Math.max(0,Math.ceil(ms/1000));const h=Math.floor(s/3600),m=Math.floor(s%3600/60);return(h?h+':'+pad(m):pad(m))+':'+pad(s%60)};
+
+function renderShifts(){
+  const box=$('shifts');box.innerHTML='';
+  SH.forEach((s,i)=>{
+    const d=document.createElement('div');d.className='sh';
+    d.innerHTML=`<h3>Jornada ${i+1}</h3>
+    <div class="row">
+      <div><label>Início</label><input type="time" data-i="${i}" data-k="a" value="${s.a}"></div>
+      <div><label>Fim</label><input type="time" data-i="${i}" data-k="b" value="${s.b}"></div>
+      <div><label>Pallets</label><input type="number" min="1" max="200" data-i="${i}" data-k="n" value="${s.n}"></div>
+    </div><div class="calc" id="calc${i}"></div>`;
+    box.appendChild(d);
+  });
+  box.querySelectorAll('input').forEach(e=>e.oninput=()=>{const s=SH[e.dataset.i];s[e.dataset.k]=e.dataset.k==='n'?(parseInt(e.value)||1):e.value;calc();save()});
+  calc();
+}
+function calc(){
+  SH.forEach((s,i)=>{
+    let a=hm(s.a),b=hm(s.b);if(b<=a)b+=1440;
+    const n=Math.max(1,s.n),per=(b-a)/n;
+    $('calc'+i).textContent=`${b-a} min ÷ ${n} pallets = ${fmtSpoken(per*60)} por pallet`;
+  });
+}
+function save(){try{localStorage.setItem(KEY,JSON.stringify({SH,st:{marks:$('marks').value,per:$('per').value,voice:$('voice').checked,vol:$('vol').value}}))}catch(e){}}
+['marks','per','voice','vol'].forEach(k=>$(k).onchange=save);
+renderShifts();
+
+let ctx,keepOsc,worker,wake,run=null;
+function ensureCtx(){if(!ctx)ctx=new (window.AudioContext||window.webkitAudioContext)();if(ctx.state!=='running')ctx.resume()}
+function beep(f,d,t=0){if(!ctx)return;const o=ctx.createOscillator(),g=ctx.createGain(),at=ctx.currentTime+t,v=parseFloat($('vol').value)*0.4;o.frequency.value=f;g.gain.setValueAtTime(0,at);g.gain.linearRampToValueAtTime(v,at+0.02);g.gain.exponentialRampToValueAtTime(0.0001,at+d);o.connect(g).connect(ctx.destination);o.start(at);o.stop(at+d+0.05)}
+const chime=()=>{beep(880,.18);beep(1175,.25,.2)};
+let ptVoice=null;
+function loadVoice(){const vs=speechSynthesis.getVoices();ptVoice=vs.find(v=>/pt[-_]BR/i.test(v.lang))||vs.find(v=>/^pt/i.test(v.lang))||null}
+if('speechSynthesis' in window){loadVoice();speechSynthesis.onvoiceschanged=loadVoice}
+function announce(text){
+  $('msg').textContent=text;chime();
+  if($('voice').checked&&'speechSynthesis' in window){
+    try{speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(text);u.lang='pt-BR';if(ptVoice)u.voice=ptVoice;u.volume=parseFloat($('vol').value);setTimeout(()=>speechSynthesis.speak(u),450)}catch(e){}
+  }
+}
+
+function build(off){
+  const d=new Date();d.setHours(0,0,0,0);const base=d.getTime()+off*864e5,out=[];
+  SH.forEach((s,si)=>{
+    let a=hm(s.a),b=hm(s.b);if(b<=a)b+=1440;
+    const n=Math.max(1,s.n),len=(b-a)*60000/n;
+    for(let i=0;i<n;i++)out.push({s:base+a*60000+i*len,e:base+a*60000+(i+1)*len,si,i,n,len});
+  });
+  return out.sort((x,y)=>x.s-y.s);
+}
+
+async function start(){
+  save();ensureCtx();
+  if(!keepOsc){keepOsc=ctx.createOscillator();const g=ctx.createGain();g.gain.value=0.0008;keepOsc.frequency.value=40;keepOsc.connect(g).connect(ctx.destination);keepOsc.start()}
+  let sched=build(0);
+  if(Date.now()>=sched[sched.length-1].e)sched=build(1);
+  const marks=[...new Set($('marks').value.split(/[,;\s]+/).map(Number).filter(x=>x>0))].sort((a,b)=>a-b);
+  const per=Math.max(0,parseFloat($('per').value)||0)*60;
+  run={sched,marks,per,lastKey:null,done:new Set()};
+  if(!worker){
+    worker=new Worker(URL.createObjectURL(new Blob(['setInterval(()=>postMessage(1),250)'],{type:'text/javascript'})));
+    worker.onmessage=tick;
+  }
+  try{wake=await navigator.wakeLock.request('screen')}catch(e){}
+  $('cfg').style.opacity=.5;$('start').disabled=true;$('stop').disabled=false;
+  tick();
+}
+
+function tick(){
+  if(!run)return;
+  const now=Date.now(),S=run.sched,last=S[S.length-1];
+  if(now>=last.e){
+    announce('Fim da jornada. Bom trabalho!');beep(520,1.2,.9);
+    $('time').textContent='00:00';$('bar').style.width='100%';$('slot').textContent='Jornada finalizada ✅';
+    return stop(true);
+  }
+  const cur=S.find(x=>now>=x.s&&now<x.e);
+  if(!cur){
+    const nx=S.find(x=>x.s>now);
+    $('slot').textContent=`Aguardando início da jornada ${nx.si+1}`;
+    $('time').textContent=fmtClock(nx.s-now);$('bar').style.width='0';$('chips').innerHTML='';
+    return;
+  }
+  const key=cur.si+'-'+cur.i,rem=cur.e-now,remS=rem/1000;
+  if(key!==run.lastKey){
+    run.lastKey=key;
+    drawChips(cur);
+    announce((cur.i===0?`Jornada ${cur.si+1} começou. `:'')+`Pallet ${cur.i+1} de ${cur.n}. Você tem ${fmtSpoken(cur.len/1000)}.`);
+  }else{
+    let say=null;
+    const all=new Set(run.marks);
+    if(run.per>0)for(let m=run.per;m<cur.len/1000;m+=run.per)all.add(Math.round(m));
+    for(const m of [...all].sort((a,b)=>a-b)){
+      if(m>=cur.len/1000)continue;
+      const k=key+'-'+m;
+      if(!run.done.has(k)&&remS<=m){run.done.add(k);if(say===null&&remS>m-6)say=m}
+    }
+    if(say!==null)announce(`Faltam ${fmtSpoken(say)}`);
+  }
+  $('time').textContent=fmtClock(rem);
+  $('slot').textContent=`Jornada ${cur.si+1} · Pallet ${cur.i+1} de ${cur.n}`;
+  $('bar').style.width=(100*(now-cur.s)/cur.len)+'%';
+  document.title=fmtClock(rem)+' · Pallet '+(cur.i+1);
+  for(let i=0;i<cur.n;i++){const c=$('c'+i);if(c)c.className='chip'+(i<cur.i?' done':i===cur.i?' on':'')}
+}
+function drawChips(cur){const c=$('chips');c.innerHTML='';for(let i=0;i<cur.n;i++){const d=document.createElement('span');d.className='chip';d.id='c'+i;d.textContent=i+1;c.appendChild(d)}}
+
+function stop(finished){
+  if(worker){worker.terminate();worker=null}
+  if(keepOsc){try{keepOsc.stop()}catch(e){}keepOsc=null}
+  if(wake){try{wake.release()}catch(e){}wake=null}
+  if(!finished){try{speechSynthesis.cancel()}catch(e){}$('time').textContent='--:--';$('slot').textContent='Parado';$('bar').style.width='0';$('msg').textContent='';$('chips').innerHTML=''}
+  run=null;document.title='Cronômetro de Pallets';
+  $('cfg').style.opacity=1;$('start').disabled=false;$('stop').disabled=true;
+}
+
+$('start').onclick=start;
+$('stop').onclick=()=>stop(false);
+$('test').onclick=()=>{ensureCtx();announce('Faltam '+fmtSpoken(parseInt($('marks').value.split(',')[0])||60))};
+document.addEventListener('visibilitychange',async()=>{if(run&&document.visibilityState==='visible'){try{wake=await navigator.wakeLock.request('screen')}catch(e){}tick()}});
+
+if('serviceWorker' in navigator){window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}))}
+</script>
+</body>
+</html>
