@@ -1,6 +1,6 @@
 // Service worker: guarda o app no cache para abrir offline.
 // Ao mudar qualquer arquivo, aumente a versão abaixo.
-const CACHE = 'pallet-timer-v2';
+const CACHE = 'pallet-timer-v3';
 const FILES = [
   './',
   './index.html',

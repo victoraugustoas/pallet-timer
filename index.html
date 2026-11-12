@@ -65,7 +65,8 @@ small{color:var(--mut);display:block;margin-top:8px;font-size:12px}
 <div class="btns">
   <button class="p" id="start">▶ Iniciar</button>
   <button id="stop" disabled>■ Parar</button>
-  <button id="test">🔊 Testar som</button>
+  <button id="test">🔊 Testar aviso final</button>
+  <button id="testper">🔔 Testar aviso periódico</button>
 </div>
 <small>Os pallets seguem o relógio: você pode iniciar a qualquer hora e ele acompanha o pallet certo do horário. Mantenha o app aberto e a tela ligada; navegadores e sistemas podem suspender apps em segundo plano.</small>
 
@@ -200,6 +201,7 @@ function stop(finished){
 
 $('start').onclick=start;
 $('stop').onclick=()=>stop(false);
+$('testper').onclick=()=>{ensureCtx();const p=parseFloat($('per').value)||0;if(p<=0){$('msg').textContent='O aviso periódico está desligado (0).';return}announce('Faltam '+fmtSpoken(p*60))};
 $('test').onclick=()=>{ensureCtx();announce('Faltam '+fmtSpoken(parseInt($('marks').value.split(',')[0])||60))};
 document.addEventListener('visibilitychange',async()=>{if(run&&document.visibilityState==='visible'){try{wake=await navigator.wakeLock.request('screen')}catch(e){}tick()}});
 
