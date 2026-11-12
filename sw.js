@@ -1,6 +1,6 @@
 // Service worker: guarda o app no cache para abrir offline.
 // Ao mudar qualquer arquivo, aumente a versão abaixo.
-const CACHE = 'pallet-timer-v4';
+const CACHE = 'pallet-timer-v5';
 const FILES = [
   './',
   './index.html',
@@ -34,4 +34,12 @@ self.addEventListener('fetch', e => {
       })
       .catch(() => caches.match(e.request).then(hit => hit || caches.match('./index.html')))
   );
+});
+
+self.addEventListener('notificationclick', e => {
+  e.notification.close();
+  e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(cs => {
+    for (const c of cs) { if ('focus' in c) return c.focus(); }
+    return self.clients.openWindow('./');
+  }));
 });

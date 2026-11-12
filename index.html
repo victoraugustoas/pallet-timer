@@ -51,6 +51,7 @@ small{color:var(--mut);display:block;margin-top:8px;font-size:12px}
   <label for="per" style="margin-top:10px">Aviso periódico a cada (minutos; 0 = desligado)</label>
   <input id="per" type="number" min="0" step="0.5" value="5">
   <div class="chk"><input id="voice" type="checkbox" checked><label for="voice" style="margin:0;color:inherit;font-size:15px">Falar o tempo restante (voz)</label></div>
+  <div class="chk"><input id="notif" type="checkbox" checked><label for="notif" style="margin:0;color:inherit;font-size:15px">Mostrar notificação a cada aviso</label></div>
   <div class="chk">Volume <input id="vol" type="range" min="0.1" max="1" step="0.1" value="1" style="flex:1"></div>
 </div>
 
@@ -74,9 +75,9 @@ small{color:var(--mut);display:block;margin-top:8px;font-size:12px}
 const $=id=>document.getElementById(id);
 const KEY='pallet-timer-cfg-v2';
 let SH=[{a:'03:00',b:'06:30',n:14},{a:'06:30',b:'08:30',n:8}];
-let st={marks:'300,60,30,10',per:'5',voice:true,vol:'1'};
+let st={marks:'300,60,30,10',per:'5',voice:true,notif:true,vol:'1'};
 try{const s=JSON.parse(localStorage.getItem(KEY)||'null');if(s){if(s.SH)SH=s.SH;Object.assign(st,s.st||{})}}catch(e){}
-$('marks').value=st.marks;$('per').value=st.per;$('voice').checked=st.voice;$('vol').value=st.vol;
+$('marks').value=st.marks;$('per').value=st.per;$('voice').checked=st.voice;$('notif').checked=st.notif!==false;$('vol').value=st.vol;
 
 const hm=s=>{const[h,m]=(s||'0:0').split(':').map(Number);return h*60+m};
 const pad=n=>String(n).padStart(2,'0');
@@ -106,8 +107,8 @@ function calc(){
     $('calc'+i).textContent=`${b-a} min ÷ ${n} pallets = ${fmtSpoken(per*60)} por pallet`;
   });
 }
-function save(){try{localStorage.setItem(KEY,JSON.stringify({SH,st:{marks:$('marks').value,per:$('per').value,voice:$('voice').checked,vol:$('vol').value}}))}catch(e){}}
-['marks','per','voice','vol'].forEach(k=>$(k).onchange=save);
+function save(){try{localStorage.setItem(KEY,JSON.stringify({SH,st:{marks:$('marks').value,per:$('per').value,voice:$('voice').checked,notif:$('notif').checked,vol:$('vol').value}}))}catch(e){}}
+['marks','per','voice','notif','vol'].forEach(k=>$(k).onchange=save);
 renderShifts();
 
 let ctx,keepOsc,worker,wake,run=null;
@@ -117,8 +118,20 @@ const chime=()=>{beep(880,.18);beep(1175,.25,.2)};
 let ptVoice=null;
 function loadVoice(){const vs=speechSynthesis.getVoices();ptVoice=vs.find(v=>/pt[-_]BR/i.test(v.lang))||vs.find(v=>/^pt/i.test(v.lang))||null}
 if('speechSynthesis' in window){loadVoice();speechSynthesis.onvoiceschanged=loadVoice}
+function notify(text){
+  try{
+    if(!$('notif').checked||!('Notification' in window)||Notification.permission!=='granted'||!('serviceWorker' in navigator))return;
+    navigator.serviceWorker.ready.then(r=>r.showNotification('Cronômetro de Pallets',{body:text,tag:'pallet',renotify:true,requireInteraction:true,icon:'icons/icon-192.png'})).catch(()=>{});
+  }catch(e){}
+}
+async function askNotif(){
+  if(!$('notif').checked||!('Notification' in window))return;
+  if(Notification.permission==='default'){try{await Notification.requestPermission()}catch(e){}}
+  if(Notification.permission==='denied')$('msg').textContent='Notificações bloqueadas. Ative em Ajustes do iPhone → Notificações.';
+}
+function clearNotif(){try{navigator.serviceWorker.ready.then(r=>r.getNotifications({tag:'pallet'}).then(l=>l.forEach(n=>n.close())))}catch(e){}}
 function announce(text){
-  $('msg').textContent=text;chime();
+  $('msg').textContent=text;chime();notify(text);
   if($('voice').checked&&'speechSynthesis' in window){
     try{speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(text);u.lang='pt-BR';if(ptVoice)u.voice=ptVoice;u.volume=parseFloat($('vol').value);setTimeout(()=>speechSynthesis.speak(u),450)}catch(e){}
   }
@@ -135,7 +148,7 @@ function build(off){
 }
 
 async function start(){
-  save();ensureCtx();
+  save();ensureCtx();await askNotif();
   if(!keepOsc){keepOsc=ctx.createOscillator();const g=ctx.createGain();g.gain.value=0.0008;keepOsc.frequency.value=40;keepOsc.connect(g).connect(ctx.destination);keepOsc.start()}
   let sched=build(0);
   if(Date.now()>=sched[sched.length-1].e)sched=build(1);
@@ -195,6 +208,7 @@ function stop(finished){
   if(keepOsc){try{keepOsc.stop()}catch(e){}keepOsc=null}
   if(wake){try{wake.release()}catch(e){}wake=null}
   if(!finished){try{speechSynthesis.cancel()}catch(e){}$('time').textContent='--:--';$('slot').textContent='Parado';$('bar').style.width='0';$('msg').textContent='';$('chips').innerHTML=''}
+  clearNotif();
   run=null;document.title='Cronômetro de Pallets';
   $('cfg').style.opacity=1;$('start').disabled=false;$('stop').disabled=true;
 }
